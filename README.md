@@ -24,8 +24,8 @@ Interactive API docs are served at `/docs`.
 - Image/video thumbnails generated in the browser; preview for images, video, audio, PDF, text and code
 - Trash with restore and automatic purge, starred, recent, search
 - Share with other users as viewer/editor ("Shared with me"), public links with optional password and expiry
-- Email + password auth (Better Auth). First account becomes admin. Admins can close sign-ups, create/ban/delete
-  users, and set default and per-user storage quotas.
+- Email + password auth (Better Auth). First account becomes admin. Sign-ups are closed by default; admins can
+  open them, create/ban/delete users, and set default and per-user storage quotas.
 
 ## Todo
 
