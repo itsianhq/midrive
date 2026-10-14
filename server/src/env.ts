@@ -29,6 +29,17 @@ const schema = z.object({
   S3_ACCESS_KEY_ID: z.string().min(1),
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_FORCE_PATH_STYLE: bool.default(false),
+
+  // Largest single file in bytes, applied even to users without a quota. Defaults to S3's 5 TiB limit.
+  MAX_UPLOAD_SIZE: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(5 * 1024 ** 4)
+      .default(5 * 1024 ** 4),
+  ),
 });
 
 const parsed = schema.safeParse(process.env);

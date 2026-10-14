@@ -5,6 +5,7 @@ import { describeRoute } from "hono-openapi";
 import { validator } from "@/lib/validator";
 import { z } from "zod";
 import { db } from "@/db/drizzle";
+import { env } from "@/env";
 import { node } from "@/db/schema";
 import { NodeSchema, cleanName, getNodeDto, purgeNodes, requireFolder } from "@/lib/drive";
 import { errors, json, OkSchema } from "@/lib/openapi";
@@ -30,7 +31,7 @@ const MAX_THUMBNAIL_SIZE = 2 * 1024 * 1024;
 
 const CreateUploadSchema = z.object({
   name: z.string().min(1).max(255),
-  size: z.number().int().nonnegative(),
+  size: z.number().int().nonnegative().max(env.MAX_UPLOAD_SIZE, "The file is larger than this server allows"),
   mimeType: z.string().max(255).optional(),
   parentId: z.string().nullish(),
   // Size of a client-generated WebP thumbnail to get a presigned upload URL for
