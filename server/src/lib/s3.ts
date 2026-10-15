@@ -42,7 +42,10 @@ const DOWNLOAD_URL_TTL = 60 * 15;
 /** Files above this size are uploaded with multipart. */
 export const MULTIPART_THRESHOLD = 64 * 1024 * 1024;
 const MIN_PART_SIZE = 16 * 1024 * 1024;
-const MAX_PARTS = 10_000;
+const MAX_PART_SIZE = 5 * 1024 ** 3;
+// Every part gets a presigned URL up front, so grow parts instead of the count.
+// With MAX_UPLOAD_SIZE capped at 5 TiB this signs at most 1024 URLs.
+const TARGET_PARTS = 1_000;
 
 export function objectKey(ownerId: string, nodeId: string) {
   return `files/${ownerId}/${nodeId}`;
@@ -87,8 +90,8 @@ function asciiFilename(name: string) {
 
 export function partSizeFor(size: number) {
   const mb = 1024 * 1024;
-  const needed = Math.ceil(size / MAX_PARTS);
-  return Math.max(MIN_PART_SIZE, Math.ceil(needed / mb) * mb);
+  const needed = Math.ceil(size / TARGET_PARTS);
+  return Math.min(MAX_PART_SIZE, Math.max(MIN_PART_SIZE, Math.ceil(needed / mb) * mb));
 }
 
 export async function createMultipart(key: string, contentType: string, size: number) {

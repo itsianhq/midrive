@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ALTER COLUMN "signup_enabled" SET DEFAULT false;

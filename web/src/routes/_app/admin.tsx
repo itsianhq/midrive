@@ -134,6 +134,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
                 <FieldDescription>
                   When off, only admins can create accounts.
                 </FieldDescription>
+                {settings.signupEnabled && settings.defaultQuota === null && (
+                  <FieldDescription className="text-destructive">
+                    Anyone who can reach this instance can sign up and use
+                    unlimited storage. Set a default quota below.
+                  </FieldDescription>
+                )}
               </FieldContent>
               <Switch
                 id="signup"

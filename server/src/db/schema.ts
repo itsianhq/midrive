@@ -184,7 +184,8 @@ export const publicLink = pgTable(
 /** Single-row table (id = 1) holding instance-wide settings. */
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey().default(1),
-  signupEnabled: boolean("signup_enabled").default(true).notNull(),
+  // Closed by default; the first account (the admin) can always sign up
+  signupEnabled: boolean("signup_enabled").default(false).notNull(),
   // Default per-user quota in bytes. null = unlimited.
   defaultQuota: bigint("default_quota", { mode: "number" }),
   trashRetentionDays: integer("trash_retention_days").default(30).notNull(),

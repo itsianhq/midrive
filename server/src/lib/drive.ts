@@ -207,11 +207,51 @@ export async function purgeNodes(rootIds: string[]) {
   });
 }
 
+// Types a browser only displays and never executes. The mime type is whatever the
+// uploader claimed, so anything else (HTML, SVG, XML, ...) is served as a download
+// to keep it from running script on the storage origin.
+const INLINE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/apng",
+  "image/bmp",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+  "video/mp4",
+  "video/webm",
+  "video/ogg",
+  "video/quicktime",
+  "video/x-m4v",
+  "video/x-matroska",
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/ogg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/webm",
+  "audio/flac",
+  "audio/aac",
+  "audio/x-m4a",
+  "audio/opus",
+  "application/pdf",
+]);
+
+function servedAs(file: NodeRow, disposition: "inline" | "attachment") {
+  let type = (file.mimeType ?? "").split(";")[0]!.trim().toLowerCase();
+  if ((!type || type === "application/octet-stream") && /\.pdf$/i.test(file.name)) type = "application/pdf";
+  if (INLINE_TYPES.has(type)) return { disposition, contentType: type };
+  // SVG keeps its type so <img> still renders it; `attachment` stops it running when opened directly.
+  return { disposition: "attachment" as const, contentType: type === "image/svg+xml" ? type : "application/octet-stream" };
+}
+
 export async function fileUrl(file: NodeRow, disposition: "inline" | "attachment") {
   if (file.type !== "file" || !file.storageKey || file.status !== "ready") {
     throw new HTTPException(400, { message: "Not a downloadable file" });
   }
-  return presignGet(file.storageKey, { filename: file.name, disposition, contentType: file.mimeType });
+  return presignGet(file.storageKey, { filename: file.name, ...servedAs(file, disposition) });
 }
 
 export function cleanName(name: string) {

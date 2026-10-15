@@ -5,6 +5,7 @@ import { describeRoute } from "hono-openapi";
 import { validator } from "@/lib/validator";
 import { z } from "zod";
 import { db } from "@/db/drizzle";
+import { env } from "@/env";
 import { node } from "@/db/schema";
 import { NodeSchema, cleanName, getNodeDto, purgeNodes, requireFolder } from "@/lib/drive";
 import { errors, json, OkSchema } from "@/lib/openapi";
@@ -28,10 +29,22 @@ const IdParam = z.object({ id: z.string() });
 // Thumbnails don't count against quota, so keep them small
 const MAX_THUMBNAIL_SIZE = 2 * 1024 * 1024;
 
+// RFC 6838 type/subtype, no parameters
+const MIME_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
+
 const CreateUploadSchema = z.object({
   name: z.string().min(1).max(255),
-  size: z.number().int().nonnegative(),
-  mimeType: z.string().max(255).optional(),
+  size: z.number().int().nonnegative().max(env.MAX_UPLOAD_SIZE, "The file is larger than this server allows"),
+  // Whatever the client claims; stored and signed into the S3 Content-Type, so
+  // keep only a bare well-formed type and treat anything else as unknown.
+  mimeType: z
+    .string()
+    .max(255)
+    .optional()
+    .transform((v) => {
+      const type = v?.split(";")[0]!.trim().toLowerCase();
+      return type && MIME_TYPE.test(type) ? type : undefined;
+    }),
   parentId: z.string().nullish(),
   // Size of a client-generated WebP thumbnail to get a presigned upload URL for
   thumbnailSize: z.number().int().positive().max(MAX_THUMBNAIL_SIZE).optional(),
