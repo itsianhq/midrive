@@ -4,7 +4,7 @@
     "target": "es2023",
     "lib": ["ES2023"],
     "module": "nodenext",
-    "types": ["node"],
+    "types": ["node", "bun"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -19,5 +19,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "serve.ts"]
 }

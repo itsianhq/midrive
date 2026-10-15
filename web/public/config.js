@@ -1,3 +1,3 @@
-// Runtime config. The Docker image overwrites this file on start from the API_URL env var.
-// In dev it stays empty and VITE_API_URL from .env is used.
+// `bun dev` uses VITE_API_URL from .env.
+// serve.ts replaces this route at container start.
 window.__MIDRIVE_CONFIG__ = {}

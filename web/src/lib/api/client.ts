@@ -2,7 +2,8 @@ import createFetchClient from "openapi-fetch"
 import createClient from "openapi-react-query"
 import type { paths } from "./schema"
 
-// Runtime value from /config.js (Docker API_URL env) wins over the build-time one
+// serve.ts sets apiUrl from VITE_API_URL at container start. `bun dev` uses
+// import.meta.env.VITE_API_URL, which Vite reads from the repo-root .env.
 export const API_URL = (
   window.__MIDRIVE_CONFIG__?.apiUrl ||
   import.meta.env.VITE_API_URL ||
