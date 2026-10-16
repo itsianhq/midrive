@@ -26,8 +26,9 @@ import { requireAuth, type AuthedEnv } from "@/middleware/auth";
 const tags = ["Uploads"];
 const IdParam = z.object({ id: z.string() });
 
-// Thumbnails don't count against quota, so keep them small
-const MAX_THUMBNAIL_SIZE = 2 * 1024 * 1024;
+// Thumbnails don't count against quota, so keep them small and never larger than
+// the file itself; otherwise they'd be free storage. Real ones are tens of KB.
+const MAX_THUMBNAIL_SIZE = 256 * 1024;
 
 // RFC 6838 type/subtype, no parameters
 const MIME_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
@@ -46,8 +47,9 @@ const CreateUploadSchema = z.object({
       return type && MIME_TYPE.test(type) ? type : undefined;
     }),
   parentId: z.string().nullish(),
-  // Size of a client-generated WebP thumbnail to get a presigned upload URL for
-  thumbnailSize: z.number().int().positive().max(MAX_THUMBNAIL_SIZE).optional(),
+  // Size of a client-generated WebP thumbnail to get a presigned upload URL for.
+  // Ignored (no thumbnail URL) when over the limits above.
+  thumbnailSize: z.number().int().positive().optional(),
 });
 
 const UploadTicketSchema = z.object({
@@ -100,7 +102,11 @@ export const uploads = new Hono<AuthedEnv>()
       const contentType = body.mimeType || "application/octet-stream";
       const key = objectKey(ownerId, id);
       const thumbSize =
-        contentType.startsWith("image/") || contentType.startsWith("video/") ? body.thumbnailSize : undefined;
+        (contentType.startsWith("image/") || contentType.startsWith("video/")) &&
+        body.thumbnailSize !== undefined &&
+        body.thumbnailSize <= Math.min(MAX_THUMBNAIL_SIZE, body.size)
+          ? body.thumbnailSize
+          : undefined;
 
       // The pending row reserves `size` bytes. Serialize per owner so parallel
       // uploads can't all pass the check against the same `used`.
@@ -178,7 +184,7 @@ export const uploads = new Hono<AuthedEnv>()
 
       const thumbKey = thumbnailKey(row.ownerId, id);
       let thumb = await headObject(thumbKey).catch(() => null);
-      if (thumb && thumb.size > MAX_THUMBNAIL_SIZE) {
+      if (thumb && thumb.size > Math.min(MAX_THUMBNAIL_SIZE, head.size)) {
         await deleteObjects([thumbKey]).catch(() => {});
         thumb = null;
       }
