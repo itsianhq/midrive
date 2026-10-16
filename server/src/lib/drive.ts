@@ -1,7 +1,7 @@
 import { and, eq, getColumns, inArray, sql, type SQL } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { db } from "@/db/drizzle";
+import { db, type DB, type Tx } from "@/db/drizzle";
 import { node, share, star, user } from "@/db/schema";
 import { abortMultipart, deleteObjects, presignGet, thumbnailKey } from "./s3";
 
@@ -74,17 +74,26 @@ export async function getNodeDto(userId: string, id: string) {
   return toDto(row);
 }
 
+/**
+ * Serialises tree changes (moves, trash, restore) within one owner's drive until
+ * the transaction ends, so concurrent moves can't combine into a cycle.
+ */
+export async function lockTree(tx: Tx, ownerId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('midrive:tree'), hashtext(${ownerId}))`);
+}
+
 /** Self and ancestors, ordered from the top of the tree down to `id`. */
-export async function ancestors(id: string) {
-  return db.execute<{ id: string; name: string; parent_id: string | null; depth: number }>(
+export async function ancestors(id: string, exec: DB | Tx = db) {
+  // CYCLE stops the walk if the tree ever contains a loop instead of recursing forever.
+  return exec.execute<{ id: string; name: string; parent_id: string | null; depth: number }>(
     sql`
       with recursive anc as (
         select id, name, parent_id, 0 as depth from ${node} where id = ${id}
         union all
         select n.id, n.name, n.parent_id, anc.depth + 1
         from ${node} n join anc on n.id = anc.parent_id
-      )
-      select id, name, parent_id, depth from anc order by depth desc
+      ) cycle id set is_cycle using path
+      select id, name, parent_id, depth from anc where not is_cycle order by depth desc
     `,
     "objects",
   );
@@ -96,7 +105,7 @@ export async function subtreeIds(id: string) {
     sql`
       with recursive sub as (
         select id from ${node} where id = ${id}
-        union all
+        union
         select n.id from ${node} n join sub on n.parent_id = sub.id
       )
       select id from sub

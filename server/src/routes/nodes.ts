@@ -14,6 +14,7 @@ import {
   cleanName,
   fileUrl,
   getNodeDto,
+  lockTree,
   nodeSelection,
   purgeNodes,
   requireAccess,
@@ -166,23 +167,32 @@ export const nodes = new Hono<AuthedEnv>()
       const patch: Partial<typeof node.$inferInsert> = {};
       if (body.name !== undefined) patch.name = cleanName(body.name);
 
-      if (body.parentId !== undefined && body.parentId !== current.parentId) {
+      const moving = body.parentId !== undefined && body.parentId !== current.parentId;
+      if (moving) {
         if (body.parentId === null) {
           if (role !== "owner") throw new HTTPException(403, { message: "Only the owner can move this to their root" });
         } else {
-          const target = await requireFolder(me.id, body.parentId, "editor");
+          const target = await requireFolder(me.id, body.parentId!, "editor");
           if (target.node.ownerId !== current.ownerId) {
             throw new HTTPException(400, { message: "Items can only be moved within the same owner's drive" });
-          }
-          const chain = await ancestors(target.node.id);
-          if (chain.some((a) => a.id === current.id)) {
-            throw new HTTPException(400, { message: "A folder cannot be moved into itself" });
           }
         }
         patch.parentId = body.parentId;
       }
 
-      if (Object.keys(patch).length > 0) await db.update(node).set(patch).where(eq(node.id, id));
+      if (Object.keys(patch).length > 0) {
+        await db.transaction(async (tx) => {
+          if (moving && body.parentId) {
+            // Checked under the tree lock so two concurrent moves can't form a cycle.
+            await lockTree(tx, current.ownerId);
+            const chain = await ancestors(body.parentId, tx);
+            if (chain.some((a) => a.id === current.id)) {
+              throw new HTTPException(400, { message: "A folder cannot be moved into itself" });
+            }
+          }
+          await tx.update(node).set(patch).where(eq(node.id, id));
+        });
+      }
       return c.json(await getNodeDto(me.id, id));
     },
   )
