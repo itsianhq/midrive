@@ -32,6 +32,10 @@ export const auth = betterAuth({
   plugins: [admin()],
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      // Admin actions go through the app's /admin routes, which enforce its rules
+      // (no self-demotion, deleting a user's files). Only server-side calls may use
+      // the plugin's endpoints; over HTTP they'd skip those rules.
+      if (ctx.path.startsWith("/admin/") && ctx.request) throw new APIError("NOT_FOUND");
       if (ctx.path !== "/sign-up/email") return;
       // The very first account can always be created; it becomes the admin.
       if ((await countUsers()) === 0) return;
