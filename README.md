@@ -15,7 +15,7 @@ Two independent apps, no monorepo:
 | `web/`    | Vite · React 19 · TanStack Router + Query · openapi-fetch + openapi-react-query · shadcn |
 
 The web app's API types are generated from the server's OpenAPI spec (`/openapi.json`).
-Interactive API docs are served at `/docs`.
+Interactive API docs are served at `/docs`. Both are disabled when `NODE_ENV=production`.
 
 ## Features
 

@@ -40,23 +40,26 @@ app
 
 app.get("/health", (c) => c.json({ ok: true }));
 
-app.get(
-  "/openapi.json",
-  openAPIRouteHandler(app, {
-    documentation: {
-      info: {
-        title: "MiDrive API",
-        version: "1.0.0",
-        description: "Self-hosted file storage. Authentication endpoints live under /auth (Better Auth).",
+// API spec and docs UI are for development only
+if (env.NODE_ENV !== "production") {
+  app.get(
+    "/openapi.json",
+    openAPIRouteHandler(app, {
+      documentation: {
+        info: {
+          title: "MiDrive API",
+          version: "1.0.0",
+          description: "Self-hosted file storage. Authentication endpoints live under /auth (Better Auth).",
+        },
+        servers: [{ url: env.BETTER_AUTH_URL }],
       },
-      servers: [{ url: env.BETTER_AUTH_URL }],
-    },
-  }),
-);
-app.get(
-  "/docs",
-  Scalar({ url: "/openapi.json", pageTitle: "MiDrive API", favicon: `${env.TRUSTED_ORIGINS[0]}/favicon.svg` }),
-);
+    }),
+  );
+  app.get(
+    "/docs",
+    Scalar({ url: "/openapi.json", pageTitle: "MiDrive API", favicon: `${env.TRUSTED_ORIGINS[0]}/favicon.svg` }),
+  );
+}
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);
