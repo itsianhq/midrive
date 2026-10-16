@@ -5,6 +5,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -37,6 +38,9 @@ const signer = env.S3_PUBLIC_ENDPOINT
 const Bucket = env.S3_BUCKET;
 
 const UPLOAD_URL_TTL = 60 * 60 * 6; // 6h, large multipart uploads can be slow
+// Single PUTs can't be revoked (unlike multipart parts, which die with an abort),
+// so keep them short: they're at most MULTIPART_THRESHOLD bytes.
+export const SINGLE_PUT_URL_TTL = 60 * 30;
 const DOWNLOAD_URL_TTL = 60 * 15;
 
 /** Files above this size are uploaded with multipart. */
@@ -60,7 +64,7 @@ export function presignPut(key: string, contentType: string, size: number) {
   return getSignedUrl(
     signer,
     new PutObjectCommand({ Bucket, Key: key, ContentType: contentType, ContentLength: size }),
-    { expiresIn: UPLOAD_URL_TTL },
+    { expiresIn: SINGLE_PUT_URL_TTL },
   );
 }
 
@@ -152,6 +156,16 @@ export async function headObject(key: string) {
     if (status === 404 || (err as Error).name === "NotFound") return null;
     throw err;
   }
+}
+
+/** Yields the keys under `prefix`, a page at a time. */
+export async function* listKeys(prefix: string) {
+  let ContinuationToken: string | undefined;
+  do {
+    const res = await s3.send(new ListObjectsV2Command({ Bucket, Prefix: prefix, ContinuationToken }));
+    yield (res.Contents ?? []).flatMap((o) => (o.Key ? [o.Key] : []));
+    ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (ContinuationToken);
 }
 
 /** Deletes objects one by one: DeleteObjects needs checksums some providers reject. */

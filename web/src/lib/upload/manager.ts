@@ -112,6 +112,15 @@ async function runJob(job: Job) {
     job.serverId = ticket.id
     if (job.status === "canceled") return
 
+    // Thumbnail URLs are short-lived, so send it before a possibly long upload
+    if (thumbnail && ticket.thumbnailUrl) {
+      await fetch(ticket.thumbnailUrl, {
+        method: "PUT",
+        body: thumbnail,
+        headers: { "Content-Type": "image/webp" },
+      }).catch(() => {})
+    }
+
     let parts: { partNumber: number; etag: string }[] | undefined
     if (ticket.kind === "single") {
       await putWithProgress(
@@ -149,14 +158,6 @@ async function runJob(job: Job) {
         }
       }
       await Promise.all(Array.from({ length: PART_CONCURRENCY }, worker))
-    }
-
-    if (thumbnail && ticket.thumbnailUrl) {
-      await fetch(ticket.thumbnailUrl, {
-        method: "PUT",
-        body: thumbnail,
-        headers: { "Content-Type": "image/webp" },
-      }).catch(() => {})
     }
 
     const done = await fetchClient.POST("/uploads/{id}/complete", {
