@@ -36,7 +36,7 @@ Interactive API docs are served at `/docs`.
 - [x] Sharing with users (viewer/editor) and public links (password, expiry)
 - [x] Email + password auth, admin panel, sign-up control, storage quotas
 - [x] Typed API client generated from the OpenAPI spec
-- [ ] Docker images, CI and tagged releases
+- [x] Docker images, CI and tagged releases
 - [ ] Desktop client with folder sync
 - [ ] Mobile app
 
@@ -61,13 +61,26 @@ Create a bucket and an access key limited to it. Browsers talk to the bucket dir
 Some providers (e.g. Wasabi) ship a default CORS policy that allows every origin, so things work without
 any setup. You can still replace it with the rule above to restrict browser access to your own web origin.
 
+## Self-hosting with Docker
+
+Each release publishes multi-arch (amd64, arm64) images to GHCR: `ghcr.io/itsianhq/midrive-server` and
+`ghcr.io/itsianhq/midrive-web`. `docker-compose.yml` runs the latest release with Postgres:
+
+```sh
+cp .env.example .env        # set BETTER_AUTH_SECRET, S3_* and your public URLs
+docker compose up -d        # API on :8080, web on :5173
+```
+
+Use `NODE_ENV=production` and set `BETTER_AUTH_URL`, `TRUSTED_ORIGINS` and `VITE_API_URL` to your public URLs.
+Migrations run when the server starts. To update: `docker compose pull && docker compose up -d`.
+
 ## Local development
 
 All Postgres, server and web settings live in a single `.env` at the repo root:
 
 ```sh
 cp .env.example .env        # set BETTER_AUTH_SECRET and S3_* values
-docker compose up -d postgres
+docker compose -f docker-compose.dev.yml up -d postgres
 
 cd server
 bun install
