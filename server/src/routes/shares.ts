@@ -119,6 +119,8 @@ export const shares = new Hono<AuthedEnv>()
       const [target] = await db.select({ id: user.id }).from(user).where(eq(user.email, email.toLowerCase()));
       if (!target) throw new HTTPException(404, { message: "No user with that email on this instance" });
       if (target.id === node.ownerId) throw new HTTPException(400, { message: "That user already owns this item" });
+      // A self-share would outlive the share it came from if the owner later removed it
+      if (target.id === me.id) throw new HTTPException(400, { message: "You can't share an item with yourself" });
 
       const insert = db
         .insert(share)
