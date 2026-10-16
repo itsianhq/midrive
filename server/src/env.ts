@@ -20,6 +20,11 @@ const schema = z.object({
     .string()
     .min(1)
     .transform((v) => v.split(",").map((s) => s.trim().replace(/\/$/, "")).filter(Boolean)),
+  // Comma-separated IPs/CIDRs of reverse proxies in front of the API, so rate limits see the real client IP
+  TRUSTED_PROXIES: z
+    .string()
+    .default("")
+    .transform((v) => v.split(",").map((s) => s.trim()).filter(Boolean)),
 
   S3_BUCKET: z.string().min(1),
   S3_REGION: z.string().default("us-east-1"),

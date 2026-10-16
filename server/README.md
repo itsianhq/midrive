@@ -9,7 +9,7 @@ bun run build      # bundle to dist/
 bun run db:generate  # create a migration after editing src/db/schema.ts
 ```
 
-- Routes: `src/routes/*` (each documented with `describeRoute` + zod, exported at `/openapi.json`, UI at `/docs`)
+- Routes: `src/routes/*` (each documented with `describeRoute` + zod, exported at `/openapi.json`, UI at `/docs`; both disabled when `NODE_ENV=production`)
 - Auth: Better Auth at `/auth/*` (`src/lib/auth.ts`)
 - Access control and tree helpers: `src/lib/drive.ts`
 - Background cleanup (stale uploads, expired trash): `src/jobs.ts`

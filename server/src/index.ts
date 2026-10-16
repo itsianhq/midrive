@@ -7,7 +7,7 @@ import { openAPIRouteHandler } from "hono-openapi";
 import { runMigrations } from "@/db/drizzle";
 import { env } from "@/env";
 import { startJobs } from "@/jobs";
-import { auth } from "@/lib/auth";
+import { auth, withClientIp } from "@/lib/auth";
 import { admin } from "@/routes/admin";
 import { me } from "@/routes/me";
 import { nodes } from "@/routes/nodes";
@@ -28,7 +28,12 @@ app.use(
   }),
 );
 
-app.on(["GET", "POST"], "/auth/*", (c) => auth.handler(c.req.raw));
+type BunServer = { requestIP(req: Request): { address: string } | null };
+
+app.on(["GET", "POST"], "/auth/*", (c) => {
+  const peer = (c.env as BunServer | undefined)?.requestIP(c.req.raw)?.address;
+  return auth.handler(withClientIp(c.req.raw, peer));
+});
 
 app
   .route("/", me)
@@ -40,23 +45,26 @@ app
 
 app.get("/health", (c) => c.json({ ok: true }));
 
-app.get(
-  "/openapi.json",
-  openAPIRouteHandler(app, {
-    documentation: {
-      info: {
-        title: "MiDrive API",
-        version: "1.0.0",
-        description: "Self-hosted file storage. Authentication endpoints live under /auth (Better Auth).",
+// API spec and docs UI are for development only
+if (env.NODE_ENV !== "production") {
+  app.get(
+    "/openapi.json",
+    openAPIRouteHandler(app, {
+      documentation: {
+        info: {
+          title: "MiDrive API",
+          version: "1.0.0",
+          description: "Self-hosted file storage. Authentication endpoints live under /auth (Better Auth).",
+        },
+        servers: [{ url: env.BETTER_AUTH_URL }],
       },
-      servers: [{ url: env.BETTER_AUTH_URL }],
-    },
-  }),
-);
-app.get(
-  "/docs",
-  Scalar({ url: "/openapi.json", pageTitle: "MiDrive API", favicon: `${env.TRUSTED_ORIGINS[0]}/favicon.svg` }),
-);
+    }),
+  );
+  app.get(
+    "/docs",
+    Scalar({ url: "/openapi.json", pageTitle: "MiDrive API", favicon: `${env.TRUSTED_ORIGINS[0]}/favicon.svg` }),
+  );
+}
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);

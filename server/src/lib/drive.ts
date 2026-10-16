@@ -1,9 +1,9 @@
 import { and, eq, getColumns, inArray, sql, type SQL } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { db } from "@/db/drizzle";
+import { db, type DB, type Tx } from "@/db/drizzle";
 import { node, share, star, user } from "@/db/schema";
-import { abortMultipart, deleteObjects, presignGet, thumbnailKey } from "./s3";
+import { SINGLE_PUT_URL_TTL, abortMultipart, deleteObjects, presignGet, thumbnailKey } from "./s3";
 
 export type NodeRow = typeof node.$inferSelect;
 export type Role = "owner" | "editor" | "viewer";
@@ -74,17 +74,26 @@ export async function getNodeDto(userId: string, id: string) {
   return toDto(row);
 }
 
+/**
+ * Serialises tree changes (moves, trash, restore) within one owner's drive until
+ * the transaction ends, so concurrent moves can't combine into a cycle.
+ */
+export async function lockTree(tx: Tx, ownerId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('midrive:tree'), hashtext(${ownerId}))`);
+}
+
 /** Self and ancestors, ordered from the top of the tree down to `id`. */
-export async function ancestors(id: string) {
-  return db.execute<{ id: string; name: string; parent_id: string | null; depth: number }>(
+export async function ancestors(id: string, exec: DB | Tx = db) {
+  // CYCLE stops the walk if the tree ever contains a loop instead of recursing forever.
+  return exec.execute<{ id: string; name: string; parent_id: string | null; depth: number }>(
     sql`
       with recursive anc as (
         select id, name, parent_id, 0 as depth from ${node} where id = ${id}
         union all
         select n.id, n.name, n.parent_id, anc.depth + 1
         from ${node} n join anc on n.id = anc.parent_id
-      )
-      select id, name, parent_id, depth from anc order by depth desc
+      ) cycle id set is_cycle using path
+      select id, name, parent_id, depth from anc where not is_cycle order by depth desc
     `,
     "objects",
   );
@@ -96,7 +105,7 @@ export async function subtreeIds(id: string) {
     sql`
       with recursive sub as (
         select id from ${node} where id = ${id}
-        union all
+        union
         select n.id from ${node} n join sub on n.parent_id = sub.id
       )
       select id from sub
@@ -178,6 +187,7 @@ export async function purgeNodes(rootIds: string[]) {
     storage_key: string | null;
     thumbnail_key: string | null;
     upload_id: string | null;
+    recent: boolean;
   }>(
     sql`
       with recursive sub as (
@@ -185,7 +195,8 @@ export async function purgeNodes(rootIds: string[]) {
         union
         select n.id from ${node} n join sub on n.parent_id = sub.id
       )
-      select n.id, n.owner_id, n.status, n.storage_key, n.thumbnail_key, n.upload_id
+      select n.id, n.owner_id, n.status, n.storage_key, n.thumbnail_key, n.upload_id,
+        n.created_at > now() - make_interval(secs => ${SINGLE_PUT_URL_TTL}) as recent
       from ${node} n join sub on n.id = sub.id
     `,
     "objects",
@@ -196,15 +207,21 @@ export async function purgeNodes(rootIds: string[]) {
   for (const r of rows) {
     if (r.upload_id && r.storage_key) await abortMultipart(r.storage_key, r.upload_id);
   }
-  await deleteObjects(
-    rows.flatMap((r) => [
-      r.storage_key,
-      // A pending upload may already have a thumbnail that isn't linked to the row yet
-      r.thumbnail_key ?? (r.status === "pending" ? thumbnailKey(r.owner_id, r.id) : null),
-    ]),
-  ).catch((err) => {
+  // A thumbnail may exist even when it isn't linked to the row (pending, or PUT after completion)
+  const keysOf = (r: (typeof rows)[number]) =>
+    r.storage_key ? [r.storage_key, r.thumbnail_key ?? thumbnailKey(r.owner_id, r.id)] : [];
+  await deleteObjects(rows.flatMap(keysOf)).catch((err) => {
     console.error("Failed to delete some S3 objects", err);
   });
+
+  // Upload URLs for recent rows may still be live and could recreate these objects,
+  // so delete them again once the URLs expire. The orphan sweep covers restarts.
+  const live = rows.filter((r) => r.recent).flatMap(keysOf);
+  if (live.length > 0) {
+    setTimeout(() => {
+      deleteObjects(live).catch((err) => console.error("Failed to re-delete S3 objects", err));
+    }, (SINGLE_PUT_URL_TTL + 60) * 1000).unref();
+  }
 }
 
 // Types a browser only displays and never executes. The mime type is whatever the
