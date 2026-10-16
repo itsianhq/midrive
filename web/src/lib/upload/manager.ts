@@ -18,7 +18,8 @@ export type UploadItem = {
 type Job = UploadItem & {
   file: File
   parentId: string | null
-  serverId?: string
+  /** The current attempt; cancel and retry replace it so a stale attempt stops. */
+  run?: object
   xhrs: Set<XMLHttpRequest>
 }
 
@@ -95,9 +96,13 @@ function putWithProgress(
 }
 
 async function runJob(job: Job) {
-  update(job, { status: "uploading", loaded: 0 })
+  const run = {}
+  const live = () => job.run === run
+  update(job, { status: "uploading", loaded: 0, run })
+  let serverId: string | undefined
   try {
     const thumbnail = await makeThumbnail(job.file)
+    if (!live()) return
     const { data: ticket, error } = await fetchClient.POST("/uploads", {
       body: {
         name: job.file.name,
@@ -109,8 +114,8 @@ async function runJob(job: Job) {
     })
     if (error || !ticket)
       throw new Error(errorMessage(error, "Could not start upload"))
-    job.serverId = ticket.id
-    if (job.status === "canceled") return
+    serverId = ticket.id
+    if (!live()) return
 
     // Thumbnail URLs are short-lived, so send it before a possibly long upload
     if (thumbnail && ticket.thumbnailUrl) {
@@ -119,6 +124,7 @@ async function runJob(job: Job) {
         body: thumbnail,
         headers: { "Content-Type": "image/webp" },
       }).catch(() => {})
+      if (!live()) return
     }
 
     let parts: { partNumber: number; etag: string }[] | undefined
@@ -128,19 +134,20 @@ async function runJob(job: Job) {
         ticket.url!,
         job.file,
         ticket.contentType,
-        (n) => update(job, { loaded: n })
+        (n) => live() && update(job, { loaded: n })
       )
     } else {
       const partSize = ticket.partSize!
       const progress = new Map<number, number>()
       const report = () =>
+        live() &&
         update(job, {
           loaded: [...progress.values()].reduce((a, b) => a + b, 0),
         })
       const queue = [...ticket.parts]
       parts = []
       const worker = async () => {
-        for (let p = queue.shift(); p; p = queue.shift()) {
+        for (let p = queue.shift(); p && live(); p = queue.shift()) {
           const blob = job.file.slice(
             (p.partNumber - 1) * partSize,
             p.partNumber * partSize
@@ -159,6 +166,7 @@ async function runJob(job: Job) {
       }
       await Promise.all(Array.from({ length: PART_CONCURRENCY }, worker))
     }
+    if (!live()) return
 
     const done = await fetchClient.POST("/uploads/{id}/complete", {
       params: { path: { id: ticket.id } },
@@ -166,19 +174,24 @@ async function runJob(job: Job) {
     })
     if (done.error)
       throw new Error(errorMessage(done.error, "Could not finish upload"))
-    update(job, { status: "done", loaded: job.size })
+    serverId = undefined
+    // Canceled while finishing: the file exists, but leave the item as the user set it
+    if (live()) update(job, { status: "done", loaded: job.size })
     onUploaded()
   } catch (err) {
-    if (job.status === "canceled") return
+    if (!live()) return
+    // Stop the other part uploads of this attempt
+    job.xhrs.forEach((x) => x.abort())
     update(job, {
       status: "error",
       error: err instanceof Error ? err.message : String(err),
     })
-    if (job.serverId) {
+  } finally {
+    // An attempt that didn't finish releases the space it reserved
+    if (serverId)
       void fetchClient.DELETE("/uploads/{id}", {
-        params: { path: { id: job.serverId } },
+        params: { path: { id: serverId } },
       })
-    }
   }
 }
 
@@ -240,12 +253,9 @@ export async function enqueueUploads(
 export function cancelUpload(key: string) {
   const job = jobs.find((j) => j.key === key)
   if (!job || (job.status !== "queued" && job.status !== "uploading")) return
-  update(job, { status: "canceled" })
+  // The running attempt sees it's stale and aborts its server upload
+  update(job, { status: "canceled", run: undefined })
   job.xhrs.forEach((x) => x.abort())
-  if (job.serverId)
-    void fetchClient.DELETE("/uploads/{id}", {
-      params: { path: { id: job.serverId } },
-    })
   pump()
 }
 
@@ -256,7 +266,6 @@ export function retryUpload(key: string) {
     status: "queued",
     error: undefined,
     loaded: 0,
-    serverId: undefined,
   })
   pump()
 }
