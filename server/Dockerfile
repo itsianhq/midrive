@@ -10,6 +10,8 @@ COPY . .
 
 RUN bun run build
 
+ENV NODE_ENV=production
+
 EXPOSE 8080
 
 CMD ["bun", "run", "/app/dist/index.js"]

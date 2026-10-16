@@ -7,7 +7,7 @@ import { openAPIRouteHandler } from "hono-openapi";
 import { runMigrations } from "@/db/drizzle";
 import { env } from "@/env";
 import { startJobs } from "@/jobs";
-import { auth } from "@/lib/auth";
+import { auth, withClientIp } from "@/lib/auth";
 import { admin } from "@/routes/admin";
 import { me } from "@/routes/me";
 import { nodes } from "@/routes/nodes";
@@ -28,7 +28,12 @@ app.use(
   }),
 );
 
-app.on(["GET", "POST"], "/auth/*", (c) => auth.handler(c.req.raw));
+type BunServer = { requestIP(req: Request): { address: string } | null };
+
+app.on(["GET", "POST"], "/auth/*", (c) => {
+  const peer = (c.env as BunServer | undefined)?.requestIP(c.req.raw)?.address;
+  return auth.handler(withClientIp(c.req.raw, peer));
+});
 
 app
   .route("/", me)

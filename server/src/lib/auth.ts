@@ -26,6 +26,9 @@ export const auth = betterAuth({
       storageQuota: { type: "number", required: false, input: false },
     },
   },
+  advanced: {
+    ipAddress: { ipAddressHeaders: ["x-forwarded-for"], trustedProxies: env.TRUSTED_PROXIES },
+  },
   plugins: [admin()],
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
@@ -66,6 +69,19 @@ export const auth = betterAuth({
     },
   },
 });
+
+/**
+ * Rate limits key on x-forwarded-for, which clients can forge. Rebuild it from the
+ * socket address, keeping the forwarded chain only when TRUSTED_PROXIES is set
+ * (Better Auth then walks it right to left, skipping the trusted hops).
+ */
+export function withClientIp(req: Request, peer: string | undefined) {
+  const headers = new Headers(req.headers);
+  const chain = env.TRUSTED_PROXIES.length > 0 ? headers.get("x-forwarded-for") : null;
+  if (peer) headers.set("x-forwarded-for", chain ? `${chain}, ${peer}` : peer);
+  else headers.delete("x-forwarded-for");
+  return new Request(req, { headers });
+}
 
 export type AuthUser = typeof auth.$Infer.Session.user;
 export type AuthSession = typeof auth.$Infer.Session.session;

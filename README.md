@@ -71,7 +71,9 @@ cp .env.example .env        # set BETTER_AUTH_SECRET, S3_* and your public URLs
 docker compose up -d        # API on :8080, web on :5173
 ```
 
-Use `NODE_ENV=production` and set `BETTER_AUTH_URL`, `TRUSTED_ORIGINS` and `VITE_API_URL` to your public URLs.
+Set `BETTER_AUTH_URL`, `TRUSTED_ORIGINS` and `VITE_API_URL` to your public URLs. The images run with
+`NODE_ENV=production`. Behind a reverse proxy, set `TRUSTED_PROXIES` to its address so login rate limits apply
+per client rather than to everyone at once.
 Migrations run when the server starts. To update: `docker compose pull && docker compose up -d`.
 
 ## Local development
