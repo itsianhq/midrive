@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { admin } from "better-auth/plugins/admin";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
-import { eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db/drizzle";
 import { account, session, user, verification } from "@/db/schema";
 import { env } from "@/env";
@@ -41,10 +41,26 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        // The very first account becomes the admin. Serialised with an advisory
+        // lock so concurrent sign-ups can't both miss (or both take) the role.
         after: async (created) => {
-          if ((await countUsers()) === 1) {
-            await db.update(user).set({ role: "admin" }).where(eq(user.id, created.id));
-          }
+          await db.transaction(async (tx) => {
+            await tx.execute(sql`select pg_advisory_xact_lock(hashtext('midrive:first-admin'))`);
+            const [admin] = await tx
+              .select({ id: user.id })
+              .from(user)
+              .where(eq(user.role, "admin"))
+              .limit(1);
+            if (admin) return;
+            const [first] = await tx
+              .select({ id: user.id })
+              .from(user)
+              .orderBy(asc(user.createdAt), asc(user.id))
+              .limit(1);
+            if (first?.id === created.id) {
+              await tx.update(user).set({ role: "admin" }).where(eq(user.id, created.id));
+            }
+          });
         },
       },
     },
